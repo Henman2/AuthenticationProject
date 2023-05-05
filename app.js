@@ -4,8 +4,10 @@ const bodyParser = require("body-parser");
 const ejs = require("ejs");
 const app = express();
 const mongoose = require("mongoose");
-const md5 = require("md5");
+// const md5 = require("md5");
 // const encrypt = require('mongoose-encryption');
+const bcrypt = require('bcrypt');
+const saltRounds = 5;
 
 app.set('view engine', 'ejs');
 app.use(bodyParser.urlencoded({extended: true}));
@@ -39,26 +41,30 @@ app.get('/logout', (req, res) => {
 });
 app.post('/register', (req, res)=>{
     //register user
-    const newUser = new User({email: req.body.username, password: md5(req.body.password)});
-    newUser.save().then(() => {
-        res.render("secrets");
-    })
-    .catch((err) => {
-        res.send(err);
+    bcrypt.hash(req.body.password, saltRounds).then(function(hash) {
+        // Store hash in your password DB.
+        const newUser = new User({email: req.body.username, password: hash});
+        newUser.save().then(() => {
+            res.render("secrets");
+        })
+        .catch((err) => {
+            res.send(err);
+        });
     });
 });
 app.post('/login', (req, res) => {
     const email = req.body.username;
-    const password = md5(req.body.password);
+    const password = req.body.password;
     //check if user already registered
     User.findOne({email: email}).then((userFound)=>{
-        if(userFound.password === password){
-            res.render("secrets");
-        }
-        else{
-            res.send("User does not exist")
-            // res.redirect('/register');
-        }
+            bcrypt.compare(password, userFound.password).then(function(result) {
+                if(result === true){
+                    res.render("secrets");
+                }
+                else{
+                    res.send("User does not exist");
+                }
+            });
     })
     .catch((err) => {
         res.send(err);
