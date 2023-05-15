@@ -1,4 +1,4 @@
-// require('dotenv').config()
+require('dotenv').config()
 const express = require("express");
 const bodyParser = require("body-parser");
 const ejs = require("ejs");
@@ -7,6 +7,8 @@ const mongoose = require("mongoose");
 const passport = require("passport");
 const session = require("express-session");
 const passportLocalMongoose = require("passport-local-mongoose");
+const googleStrategy = require('passport-google-oauth20').Strategy;
+const findOrCreate = require('mongoose-findorcreate')
 // const md5 = require("md5");
 // const encrypt = require('mongoose-encryption');
 // const bcrypt = require('bcrypt');
@@ -34,11 +36,12 @@ mongoose.connect("mongodb://localhost:27017/userDB").then(()=>{ console.log("con
 const userSchema = new mongoose.Schema({
     email: String,
     password: String,
-    // active: Boolean
+    googleId: String
 });
 
 //let userscheme use passport local mongoose as plugin
 userSchema.plugin(passportLocalMongoose);
+userSchema.plugin(findOrCreate);
 //Encrption
 // console.log(process.env.SECRET_KEY);
 // userSchema.plugin(encrypt, {secret: process.env.SECRET_KEY, encryptedFields: ["password"]});
@@ -48,12 +51,47 @@ const User = mongoose.model("User", userSchema);
 passport.use(User.createStrategy());
 
 //set passport to serialize and deseralize our user
-passport.serializeUser(User.serializeUser());
-passport.deserializeUser(User.deserializeUser());
+// passport.serializeUser(User.serializeUser());
+// passport.deserializeUser(User.deserializeUser());
+passport.serializeUser(function(user, done) {
+   done(null, user.id);
+});
+
+passport.deserializeUser(function(id, done) {
+  User.findById(id).then((user)=> {
+        done(null, user);
+  }).catch((err) => {
+    done(err);
+  });
+});
+
+//use third party authentication
+passport.use(new googleStrategy({
+  clientID: process.env.CLIENT_ID,
+  clientSecret: process.env.CLIENT_SECRET,
+  callbackURL: "http://localhost:3000/auth/google/authentication-app",
+  userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo"
+},
+function(accessToken, refreshToken, profile, cb) {
+  // console.log(profile);
+  User.findOrCreate({ googleId: profile.id }, function (err, user) {
+    return cb(err, user);
+  });
+}
+));
 
 app.get('/', (req, res) => {
     res.render("home");
 });
+app.get('/auth/google',
+  passport.authenticate('google', { scope: ["profile"] })
+);
+app.get('/auth/google/authentication-app', 
+  passport.authenticate('google', { failureRedirect: '/login' }),
+  function(req, res) {
+    // Successful authentication, redirect secrets.
+    res.redirect('/secrets');
+  });
 app.get('/secrets', (req, res) => {
     if(req.isAuthenticated()){
         res.render('secrets');
@@ -73,6 +111,15 @@ app.get('/logout', (req, res, next) => {
     if (err) { return next(err); }
     res.redirect('/');
   });
+});
+app.get('/submit', (req, res) => {
+  if(req.isAuthenticated()){
+    res.render('submit');
+}
+else{
+    res.redirect('/login');
+}
+
 });
 app.post('/register', (req, res)=>{
     //register user
@@ -131,6 +178,9 @@ app.post('/login', (req, res) => {
     //     res.send(err);
     // });
 });
+app.post('/submit',(req, res) => {
+  console.log(req.user);
+})
 
 app.listen(3000, function() {
     console.log("Server started on port 3000");
